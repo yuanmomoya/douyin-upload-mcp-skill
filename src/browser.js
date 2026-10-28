@@ -80,11 +80,19 @@ async function ensureDaemon() {
  */
 async function findOrCreateDouyinPage(browser) {
   const pages = await browser.pages();
+  const workspaceTab = config.workspaceTab;
 
   // 优先复用已有的抖音创作者平台页面
   for (const page of pages) {
     const url = page.url();
     if (url.includes('creator.douyin.com')) {
+      if (workspaceTab) {
+        const matches = await page.evaluate(
+          name => sessionStorage.getItem('douyin_skill_workspace_tab') === name,
+          workspaceTab,
+        ).catch(() => false);
+        if (!matches) continue;
+      }
       console.log('[browser] 命中已有抖音创作者平台页面');
       await page.bringToFront();
       return page;
@@ -97,6 +105,9 @@ async function findOrCreateDouyinPage(browser) {
     waitUntil: 'networkidle2',
     timeout: 30_000,
   });
+  if (workspaceTab) {
+    await page.evaluate(name => sessionStorage.setItem('douyin_skill_workspace_tab', name), workspaceTab);
+  }
   console.log('[browser] 已打开新的抖音创作者平台页面');
   return page;
 }

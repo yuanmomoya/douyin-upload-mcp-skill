@@ -1,7 +1,7 @@
 ## 基于 CDP 操控抖音创作者平台，实现视频、图文的全自动发布。
 
 <p align="center">
-  <a href="https://github.com/WJZ-P/douyin-upload-mcp-skill/">
+  <a href="https://github.com/yuanmomoya/douyin-upload-mcp-skill/">
     <img src="markdown/douyin.png" alt="Logo" width="150" height="150" style="margin: 0; border-radius: 24px;">
   </a>
 </p>
@@ -11,9 +11,9 @@
 <p align="center">
   <a href="#快速开始">快速开始</a>
   ·
-  <a href="https://github.com/WJZ-P/douyin-upload-mcp-skill/issues">报告 Bug</a>
+  <a href="https://github.com/yuanmomoya/douyin-upload-mcp-skill/issues">报告 Bug</a>
   ·
-  <a href="https://github.com/WJZ-P/douyin-upload-mcp-skill/issues">提出新特性</a>
+  <a href="https://github.com/yuanmomoya/douyin-upload-mcp-skill/issues">提出新特性</a>
 </p>
 
 <p align="center">
@@ -38,6 +38,7 @@
 
 - **视频发布**：上传视频 → 等待转码 → AI 封面推荐 → 填写标题/简介 → 一键发布
 - **图文发布**：上传多张图片 → 填写标题/简介 → 自动选择音乐 → 一键发布
+- **定时发布**：视频、图文均支持指定上海时间，提交前核对定时模式，提交后核对作品管理记录
 - **登录管理**：扫码 → 短信验证 → 验证码输入，全流程自动推进
 - **浏览器托管**：独立 Daemon 进程管理 Chrome 生命周期，闲置 30 分钟自动销毁
 
@@ -86,8 +87,28 @@ node src/demo-imagetext.js
 
 | 工具 | 说明 | 必填参数 | 可选参数 |
 |------|------|----------|----------|
-| `douyin_publish_video` | 发布视频 | `filePath` | `title`, `description`, `timeout` |
-| `douyin_publish_imagetext` | 发布图文 | `filePaths` | `title`, `description` |
+| `douyin_publish_video` | 立即或定时发布视频 | `filePath` | `title`, `description`, `timeout`, `scheduleAt` |
+| `douyin_publish_imagetext` | 立即或定时发布图文 | `filePaths` | `title`, `description`, `scheduleAt` |
+
+### 定时发布
+
+为上述任一发布工具传入 `scheduleAt`，例如 `2026-10-31T20:00:00+08:00`；请替换为执行时2小时后、14天内的实际日期。必须显式包含上海时区 `+08:00`，精确到整分钟，并提供 `title` 以便核验作品。
+
+定时发布会提交一条到点自动公开的作品，不是草稿。省略 `scheduleAt` 保持立即发布。脚本只有在作品管理中找到唯一标题、正确时间及审核中/待发布状态后才返回定时提交成功；结果不明时先核查平台，不要直接重试。
+
+图文的 `filePaths` 按传入顺序上传，按文件名排序应由调用方在传参前完成。图文标题当前限制20字，视频30字，以实际页面为准。定时图文流程不自动添加音乐。
+
+JS 分步操作可使用 `ops.publishVideo(filePath, {title, description, draftOnly: true})` 或 `ops.publishImageText(filePaths, {title, description, prepareOnly: true})`，仅停在编辑页；再从 `src/schedule.js` 导入 `setSchedule`、`submitScheduled`、`verifyScheduled` 完成定时和核验。不要把准备模式与 `scheduleAt` 混用。
+
+本机实测网页“暂存离开”使用单份浏览器编辑缓存，连续上传可能覆盖旧暂存。编辑页或本地缓存备份不等于多条独立云端草稿。
+
+### 验证
+
+```bash
+npm test
+```
+
+测试覆盖时间范围、无效日期、提交前校验、临近发布时间的核验、重复记录和不确定提交，以及 MCP 参数契约；不会上传或发布真实内容。
 
 ### 登录与状态
 
@@ -164,6 +185,7 @@ MCP Client → mcp-server.js → index.js → browser.js → Daemon
 |------|--------|------|
 | `OUTPUT_DIR` | `./douyin-output` | 截图、二维码等输出文件目录 |
 | `DOUYIN_URL` | `https://creator.douyin.com/` | 抖音创作者平台首页 URL |
+| `DOUYIN_WORKSPACE_TAB` | 未设置 | 可选任务标识；设置后在托管浏览器中使用独立标签页，避免人工切换页面干扰批处理 |
 
 ### 关于 OpenClaw 浏览器复用
 
@@ -182,6 +204,8 @@ BROWSER_DEBUG_PORT=18800
 - **puppeteer-core** + **puppeteer-extra-plugin-stealth**：CDP 连接 + 反检测
 - **@modelcontextprotocol/sdk**：MCP 协议实现
 - **原生 Node.js HTTP**：Daemon 微服务
+
+本分支基于 [WJZ-P/douyin-upload-mcp-skill](https://github.com/WJZ-P/douyin-upload-mcp-skill)，保留原项目许可证。
 
 ## License
 

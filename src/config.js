@@ -113,6 +113,8 @@ const config = {
 
   /** 抖音创作者平台上传页 URL */
   douyinUrl: envStr('DOUYIN_URL', 'https://creator.douyin.com/'),
+  /** 可选任务标签，隔离自动化标签页与人工查看页面 */
+  workspaceTab: envStr('DOUYIN_WORKSPACE_TAB', undefined),
 };
 
 export default config;

@@ -1,7 +1,7 @@
 ## Automate Douyin (TikTok China) Creator Platform via CDP — fully automated video & image-text publishing.
 
 <p align="center">
-  <a href="https://github.com/WJZ-P/douyin-upload-mcp-skill/">
+  <a href="https://github.com/yuanmomoya/douyin-upload-mcp-skill/">
     <img src="markdown/douyin.png" alt="Logo" width="150" height="150" style="margin: 0; border-radius: 24px;">
   </a>
 </p>
@@ -11,9 +11,9 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a>
   ·
-  <a href="https://github.com/WJZ-P/douyin-upload-mcp-skill/issues">Report Bug</a>
+  <a href="https://github.com/yuanmomoya/douyin-upload-mcp-skill/issues">Report Bug</a>
   ·
-  <a href="https://github.com/WJZ-P/douyin-upload-mcp-skill/issues">Request Feature</a>
+  <a href="https://github.com/yuanmomoya/douyin-upload-mcp-skill/issues">Request Feature</a>
 </p>
 
 <p align="center">
@@ -38,6 +38,7 @@ A CDP-based (Chrome DevTools Protocol) automation service for Douyin's Creator P
 
 - **Video Publishing**: Upload video → wait for transcoding → AI cover recommendation → fill title/description → publish
 - **Image-Text Publishing**: Upload multiple images → fill title/description → auto-select music → publish
+- **Scheduled Publishing**: Schedule videos or image-text posts in Shanghai time, with pre-submit checks and verification in content management
 - **Login Management**: QR code scan → SMS verification → code input, fully automated multi-step flow
 - **Browser Hosting**: Standalone Daemon process manages Chrome lifecycle, auto-destroys after 30 minutes of inactivity
 
@@ -86,8 +87,28 @@ node src/demo-imagetext.js
 
 | Tool | Description | Required | Optional |
 |------|-------------|----------|----------|
-| `douyin_publish_video` | Publish a video | `filePath` | `title`, `description`, `timeout` |
-| `douyin_publish_imagetext` | Publish image-text | `filePaths` | `title`, `description` |
+| `douyin_publish_video` | Publish or schedule a video | `filePath` | `title`, `description`, `timeout`, `scheduleAt` |
+| `douyin_publish_imagetext` | Publish or schedule image-text | `filePaths` | `title`, `description`, `scheduleAt` |
+
+### Scheduled publishing
+
+Pass `scheduleAt` to either publishing tool, for example `2026-10-31T20:00:00+08:00`. Replace this example with a date between two hours and fourteen days after execution. Use an explicit Shanghai offset (`+08:00`), whole minutes, and a `title` for verification.
+
+A scheduled post is submitted to the platform and becomes public automatically at that time; it is not a draft. Omitting `scheduleAt` keeps immediate publishing. Success requires a unique matching title, the requested time, and a pending/review status in content management. Inspect uncertain submissions before retrying.
+
+Images retain the order of `filePaths`; callers should sort filenames before passing the array. The current image-text title limit is 20 characters (30 for videos); check the actual page. Scheduled image-text publishing does not automatically select music.
+
+For staged JavaScript operations, use `ops.publishVideo(filePath, {title, description, draftOnly: true})` or `ops.publishImageText(filePaths, {title, description, prepareOnly: true})` to stop in the editor. Then use `setSchedule`, `submitScheduled`, and `verifyScheduled` from `src/schedule.js`. Do not combine preparation mode with `scheduleAt`.
+
+The web editor's temporary-save action was observed to use one browser cache slot. Another upload may replace it; editor state and local backups do not establish multiple independent cloud drafts.
+
+### Validation
+
+```bash
+npm test
+```
+
+Tests cover scheduling boundaries, invalid dates, pre-submit checks, verification near release time, duplicate records, uncertain submissions, and the MCP schema. They never upload or publish real content.
 
 ### Login & Status
 
@@ -164,6 +185,7 @@ All configuration is done via environment variables or `.env` files. A `.env` te
 |----------|---------|-------------|
 | `OUTPUT_DIR` | `./douyin-output` | Output directory for screenshots, QR codes, etc. |
 | `DOUYIN_URL` | `https://creator.douyin.com/` | Douyin Creator Platform homepage URL |
+| `DOUYIN_WORKSPACE_TAB` | Unset | Optional task marker for a dedicated managed browser tab, isolating automation from manual navigation |
 
 ### Reusing OpenClaw's Browser Session
 
@@ -182,6 +204,8 @@ BROWSER_DEBUG_PORT=18800
 - **puppeteer-core** + **puppeteer-extra-plugin-stealth**: CDP connection + anti-detection
 - **@modelcontextprotocol/sdk**: MCP protocol implementation
 - **Native Node.js HTTP**: Daemon micro-service
+
+This fork is based on [WJZ-P/douyin-upload-mcp-skill](https://github.com/WJZ-P/douyin-upload-mcp-skill) and retains its original license.
 
 ## License
 

@@ -4,3 +4,4 @@ douyin-output/
 *.log
 test
 temp
+.local/

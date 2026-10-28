@@ -1,6 +1,6 @@
 ---
 name: douyin-upload-mcp-skill
-description: 通过抖音创作者平台（creator.douyin.com）发布视频和图文内容。首选调用 MCP 工具完成操作，MCP 无法满足时可运行 Skill 脚本兜底。禁止自行启动外部浏览器访问抖音。
+description: 通过抖音创作者平台（creator.douyin.com）立即或定时发布视频、图文。首选MCP工具，缺少能力时使用Skill脚本。禁止自行启动外部浏览器访问抖音。
 ---
 
 # 抖音 MCP Skill
@@ -28,8 +28,8 @@ description: 通过抖音创作者平台（creator.douyin.com）发布视频和�
 
 | 工具名 | 说明 | 入参 |
 |--------|------|------|
-| `douyin_publish_video` | 发布视频（全自动，内部自动检查登录） | `filePath`（必填）, `title`, `description`, `timeout` |
-| `douyin_publish_imagetext` | 发布图文（全自动，内部自动检查登录） | `filePaths`（必填，字符串数组）, `title`, `description` |
+| `douyin_publish_video` | 立即或定时发布视频（自动检查登录） | `filePath`（必填）, `title`, `description`, `timeout`, `scheduleAt` |
+| `douyin_publish_imagetext` | 立即或定时发布图文（自动检查登录） | `filePaths`（必填，有序字符串数组）, `title`, `description`, `scheduleAt` |
 
 ### 登录与状态
 
@@ -75,6 +75,31 @@ description: 通过抖音创作者平台（creator.douyin.com）发布视频和�
   title: "我的图文"
   description: "图文简介 #标签"
 ```
+
+### 4. 定时发布视频或图文
+
+仅在用户明确要求定时发布时传入 `scheduleAt`。这是提交到平台的待发布作品，到点会自动公开，不是草稿。用户说“仅上传、不发布”时不能擅自使用定时发布替代。
+
+```text
+douyin_publish_video:
+  filePath: "C:/videos/test.mp4"
+  title: "作品标题"
+  description: "作品简介 #标签"
+  scheduleAt: "2026-10-30T20:00:00+08:00"
+```
+
+- 时间必须包含上海时区 `+08:00`，使用整分钟；页面当前支持2小时后至14天内，执行时同时核对实际页面限制。
+- 先选“定时发布”，填写“日期和时间”，失焦后回读并核对定时模式，再点击“发布”。遇到输入失败就停止，不能退回立即发布。
+- 提交后在作品管理中核对同一标题、目标时间及“审核中/待发布/定时发布”状态。仅页面跳转或出现成功提示不足以确认时间。审核中可能暂时无法编辑；用户可在平台允许后修改待发布作品。
+- 提交结果不明时先核查作品管理，不能直接重复提交。批次逐条确认后再继续。
+- 用户同时查看平台时，可设置环境变量 `DOUYIN_WORKSPACE_TAB` 为本任务标识；脚本会在Skill托管浏览器中复用独立标签页，避免人工切换页面中断操作。
+- MCP工具未提供新参数时，使用本包 `src/schedule.js` 的 `setSchedule`、`submitScheduled`、`verifyScheduled`；使用现有 `createDouyinSession()` 会话。`src/douyin-ops.js` 的 `publishVideo(filePath,{title,description,scheduleAt})` 也支持完整流程。
+- 图文同样使用 `publishImageText(filePaths,{title,description,scheduleAt})`。先按用户指定顺序排列 `filePaths`，等待“已添加N张图片”且上传进度消失后再提交；核对图片数、封面和预览顺序。图文标题当前页面限制20字，视频30字，以页面为准。
+- 分步处理图文时可传 `prepareOnly:true`，仅上传和填写，随后调用定时函数；不得将此返回状态当作已提交。正文含多段时逐段输入并用Enter换段，提交前回读正文，避免整段粘贴产生多余星号；话题可逐个输入并选择同名推荐，保留源文案中的所有标签。
+
+### 未发布暂存的边界
+
+本机实测网页“暂存离开”保存到浏览器单份 `publish_form_cache:<账号>`，下一次上传可能覆盖；不能据此声称已在平台草稿箱保存多条作品。本地导出的缓存只能称为恢复备份，不能冒充云端草稿。`draftOnly:true` 仅停在编辑页；已有暂存时阻止覆盖。是否存在独立草稿能力，以用户当前账号页面实际核验为准。
 
 ## MCP 客户端配置
 

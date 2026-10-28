@@ -8,6 +8,7 @@
 import { createOperator } from './operator.js';
 import { sleep } from './util.js';
 import config from './config.js';
+import { parseSchedule, setSchedule, submitScheduled } from './schedule.js';
 import { existsSync } from 'node:fs';
 import { resolve as pathResolve, normalize as pathNormalize } from 'node:path';
 
@@ -236,6 +237,30 @@ export function createOps(page) {
      * @returns {Promise<{ok: boolean, error?: string}>}
      */
     async publishVideo(filePath, opts = {}) {
+      if (opts.scheduleAt) parseSchedule(opts.scheduleAt);
+      if (opts.scheduleAt && !opts.title) return { ok: false, error: 'scheduled_title_required' };
+      if (opts.scheduleAt && opts.draftOnly) return { ok: false, error: 'conflicting_publish_modes' };
+      if (opts.draftOnly === true) {
+        const occupied = await op.query(() => {
+          const key = Object.keys(localStorage).find(k => k.startsWith('publish_form_cache:'));
+          let hasCache = false;
+          if (key && localStorage.getItem(key)) {
+            try {
+              const cache = JSON.parse(localStorage.getItem(key))?.cache;
+              hasCache = !!cache && Object.keys(cache).length > 0;
+            } catch {
+              hasCache = true;
+            }
+          }
+          return !!hasCache || location.pathname.includes('/content/post/video');
+        });
+        if (occupied) {
+          return {
+            ok: false, error: 'draft_slot_occupied',
+            detail: '当前网页暂存槽已占用，禁止以批量草稿模式上传覆盖。暂存缓存不等于独立云端草稿。',
+          };
+        }
+      }
       // 1. 确保在上传页
       const goResult = await this.goUploadPage();
       if (!goResult.ok) return goResult;
@@ -266,16 +291,24 @@ export function createOps(page) {
       }
 
       // 判断是否超时
-      const elapsed = Date.now() - uploadStart;
+      let elapsed = Date.now() - uploadStart;
       const stillUploading = await op.query(() => !!document.querySelector('[class*="uploading-container"]'));
       if (stillUploading) {
         return { ok: false, error: 'upload_timeout', detail: `视频上传超时 (${uploadTimeout}ms)`, file: filePath };
       }
+
+      if (opts.draftOnly === true || opts.scheduleAt) {
+        await op.page.waitForFunction(() => document.body.innerText.includes('重新上传') &&
+          !/已上传：|取消上传/.test(document.body.innerText) &&
+          !!document.querySelector('input[placeholder*="作品标题"]'),
+        { timeout: uploadTimeout, polling: 1000 });
+      }
+      elapsed = Date.now() - uploadStart;
       console.log(`[ops] 视频上传完成 (${elapsed}ms): ${filePath}`);
 
       // 5. 等待 AI 封面生成完毕，再选择推荐封面
       console.log('[ops] 等待 AI 封面生成完毕...');
-      const coverReady = await op.waitFor(() => {
+      const coverReady = opts.draftOnly ? { ok: true } : await op.waitFor(() => {
         const title = document.querySelector('span[class*="recommendTitle"]');
         if (!title) return false;
         // 文本变为"Ai智能推荐封面"（不含"生成中"）即为完成
@@ -287,7 +320,7 @@ export function createOps(page) {
       }
 
       await sleep(250);
-      const coverResult = await op.click(['div[class*="recommendCoverContainer"] > div:first-child']);
+      const coverResult = opts.draftOnly ? { ok: false } : await op.click(['div[class*="recommendCoverContainer"] > div:first-child']);
       if (coverResult.ok) {
         console.log('[ops] 已点击推荐封面，等待确认弹窗...');
         await sleep(250);
@@ -307,6 +340,7 @@ export function createOps(page) {
         const titleResult = await this.fillTitle(title);
         if (!titleResult.ok) {
           console.warn(`[ops] 填写标题失败: ${titleResult.error}`);
+          return { ok: false, error: titleResult.error, file: filePath };
         }
       }
 
@@ -315,7 +349,22 @@ export function createOps(page) {
         const descResult = await this.fillDescription(description);
         if (!descResult.ok) {
           console.warn(`[ops] 填写简介失败: ${descResult.error}`);
+          return { ok: false, error: descResult.error, file: filePath };
         }
+      }
+
+      // 草稿模式的硬边界：返回编辑页，绝不进入以下发布步骤。
+      if (opts.draftOnly === true) {
+        return {
+          ok: true, type: 'video-draft-editor', file: filePath, elapsed,
+          published: false, saved: false, coverSelected: coverResult.ok,
+        };
+      }
+
+      if (opts.scheduleAt) {
+        await setSchedule(op.page, opts.scheduleAt);
+        const result = await submitScheduled(op.page, { title: opts.title, scheduleAt: opts.scheduleAt });
+        return { ...result, file: filePath, elapsed };
       }
 
       // 8. 点击发布按钮（先滚动到视图内）
@@ -421,6 +470,9 @@ export function createOps(page) {
      * @returns {Promise<{ok: boolean, error?: string}>}
      */
     async publishImageText(filePaths, opts = {}) {
+      if (opts.scheduleAt) parseSchedule(opts.scheduleAt);
+      if (opts.scheduleAt && !opts.title) return { ok: false, error: 'scheduled_title_required' };
+      if (opts.scheduleAt && opts.prepareOnly) return { ok: false, error: 'conflicting_publish_modes' };
       const paths = Array.isArray(filePaths) ? filePaths : [filePaths];
 
       // 1. 确保在上传页
@@ -438,6 +490,10 @@ export function createOps(page) {
       if (!uploadResult.ok) return uploadResult;
 
       console.log(`[ops] 图文已上传 ${paths.length} 张图片`);
+      await op.page.waitForSelector('input[placeholder*="作品标题"]', { timeout: 60000 });
+      await op.page.waitForFunction(n =>
+        document.body.innerText.includes(`已添加${n}张图片`) && !document.body.innerText.includes('取消上传'),
+      { timeout: 300000, polling: 500 }, paths.length);
 
       // 4. 填写标题
       const { title, description } = opts;
@@ -445,6 +501,7 @@ export function createOps(page) {
         const titleResult = await this.fillTitle(title);
         if (!titleResult.ok) {
           console.warn(`[ops] 填写标题失败: ${titleResult.error}`);
+          return { ok: false, error: titleResult.error };
         }
       }
 
@@ -453,7 +510,17 @@ export function createOps(page) {
         const descResult = await this.fillDescription(description);
         if (!descResult.ok) {
           console.warn(`[ops] 填写简介失败: ${descResult.error}`);
+          return { ok: false, error: descResult.error };
         }
+      }
+
+      if (opts.prepareOnly) {
+        return { ok: true, type: 'imagetext-editor', count: paths.length, files: paths, published: false };
+      }
+      if (opts.scheduleAt) {
+        await setSchedule(op.page, opts.scheduleAt);
+        const result = await submitScheduled(op.page, { title: opts.title, scheduleAt: opts.scheduleAt });
+        return { ...result, type: 'imagetext', count: paths.length, files: paths };
       }
 
       // 6. 点击「选择音乐」（先滚动到视图中心）
